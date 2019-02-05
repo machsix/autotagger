@@ -4,7 +4,7 @@
 from __future__ import print_function
 
 import re
-import os
+import os, glob
 import sys
 import shutil
 import logging
@@ -113,14 +113,14 @@ class Song(object):
 
     def __init__(self, filepath):
         self.filepath = filepath
-        filename = to_unicode(os.path.basename(filepath))
+        filename = os.path.basename(filepath)
         self.filename = filename
         ext = get_and_check_ext(filename)
         self.ext = ext
         self.mutagen_factory = SUPPORT_EXTS[ext]
         self.mutagen_obj = self.mutagen_factory(filepath)
         self.key_map = Song.MUTAGEN_KEY_MAPS[ext]
-        self.reversed_key_map = {v: k for k, v in self.key_map.iteritems()}
+        self.reversed_key_map = {v: k for k, v in self.key_map.items()}
 
         #logger.debug('mutagen obj: %s', self.mutagen_obj)
 
@@ -152,7 +152,7 @@ class Song(object):
             # Create new
             self.mutagen_obj = self.mutagen_factory(self.filepath)
 
-        for k, v in tags.iteritems():
+        for k, v in tags.items():
             mutagen_key = self.key_map[k]
             if v is None:
                 if mutagen_key in self.mutagen_obj:
@@ -161,7 +161,10 @@ class Song(object):
                     # Leave this key unchanged
                     pass
             else:
-                self.mutagen_obj[mutagen_key] = to_unicode(v)
+                if (mutagen_key == 'date'):
+                    self.mutagen_obj['date'] = '%4d'%(int(v))
+                else:
+                    self.mutagen_obj[mutagen_key] = v
 
         self.mutagen_obj.save()
 
@@ -171,12 +174,12 @@ class Song(object):
     def __unicode__(self):
         return u'<Song: {}>'.format(self.filename)
 
-    def __str__(self):
-        return unicode(self).encode('utf8')
+    # def __str__(self):
+    #     return unicode(self).encode('utf8')
 
 
 def slash_first_item(s):
-    if isinstance(s, basestring):
+    if isinstance(s, str):
         sp = s.split('/')
         if len(sp) > 1:
             return sp[0]
@@ -194,19 +197,6 @@ def generate_id(track_number, disc_number):
     return id
 
 
-def to_unicode(s):
-    if isinstance(s, str):
-        return s.decode('utf8')
-    else:
-        return unicode(s)
-
-
-def to_str(s):
-    if isinstance(s, unicode):
-        return s.encode('utf8')
-    else:
-        return str(s)
-
 
 ITUNES_API_ALBUM_URL = 'https://itunes.apple.com/lookup?id={}&entity=song&limit=200&lang={}&country={}'
 
@@ -223,7 +213,6 @@ def fetch_album_songs(album_id, only_songs=True, context=GLOBAL_CONTEXT):
     results = data['results']
     if not len(results):
         raise ResultIsEmpty('Response is: {}'.format(resp.content.strip()))
-    print(results)
     if only_songs:
         return results[1:]
     else:
@@ -231,7 +220,7 @@ def fetch_album_songs(album_id, only_songs=True, context=GLOBAL_CONTEXT):
 
 
 def format_song_data(origin):
-    d = {k: origin.get(v) for k, v in ITUNES_API_KEY_MAP.iteritems()}
+    d = {k: origin.get(v) for k, v in ITUNES_API_KEY_MAP.items()}
 
     d['track_number'] = '{}/{}'.format(d['track_number'], origin['trackCount'])
 
@@ -265,14 +254,15 @@ def tag_songs(songs, album_id, clear_others=False, need_confirm=True):
         _id = generate_id(song_data['track_number'], song_data['disc_number'])
         songs_data_col[_id] = song_data
 
-    logger.debug('formatted song data [0]: %s', songs_data_col.values()[0])
+    z = list(songs_data_col.values())
+    logger.debug('formatted song data [0]: %s', z[0])
 
     # Prepare arguments
     args_tuples = []
     preview_tuples = []
     unmatched_count = 0
     songs_data_col_stack = dict(songs_data_col)
-    for id, song in songs_col.iteritems():
+    for id, song in songs_col.items():
         song_data = songs_data_col_stack.pop(id, None)
         if song_data is None:
             # Unmatched song data
@@ -291,7 +281,7 @@ def tag_songs(songs, album_id, clear_others=False, need_confirm=True):
     # Unmatched song file
     preview_tuples.extend([
         ('<no song>', False, _get_title(i), _get_track_number(i))
-        for i in songs_data_col_stack.itervalues()
+        for i in songs_data_col_stack.values()
     ])
     unmatched_count += len(songs_data_col_stack)
     preview = u'\n'.join(
@@ -304,7 +294,7 @@ def tag_songs(songs, album_id, clear_others=False, need_confirm=True):
 
     # Show preview and stats
     print('\nPreview:')
-    good_count = len(filter(lambda x: x[1], preview_tuples))
+    good_count = len(list(filter(lambda x: x[1], preview_tuples)))
     stat_str = '{} input, {} could be processed, {} unmatched, {}'.format(
         len(songs_col), good_count, unmatched_count,
         'better to recheck :/' if unmatched_count else 'looks good :)')
@@ -315,8 +305,7 @@ def tag_songs(songs, album_id, clear_others=False, need_confirm=True):
     if need_confirm:
         # Fix stdin being redirected when using pipeline:
         # http://stackoverflow.com/a/7141375/596206
-        sys.stdin = open('/dev/tty')
-        iv = raw_input('Continue? y/N')
+        iv = input('Continue? y/N')
         if iv == 'N':
             return
 
@@ -327,7 +316,6 @@ def tag_songs(songs, album_id, clear_others=False, need_confirm=True):
 
 def _cell(s, limit=35):
     #print(repr(s))
-    s = to_unicode(s)
     width = unicode_width(s)
     if width > limit:
         align_pos = - limit + 4
@@ -402,7 +390,7 @@ def download_artwork(album_id, artwork_size):
     album_name = album_data[ALBUM_NAME_KEY]
     album_name = album_name.strip().replace(' ', '')
 
-    filename = '{}-{}.jpg'.format(album_name.encode('utf8'), size_repr)
+    filename = '{}-{}.jpg'.format(album_name, size_repr)
 
     resp = requests.get(artwork_url, stream=True)
     if resp.status_code < 300:
@@ -435,9 +423,10 @@ def main():
                        help='iTunes album id')
     group.add_argument('-u', '--url', type=str, metavar='ALBUMURL',
                        help='iTunes album url')
-
     parser.add_argument('-p', '--pipeline', action='store_true',
                         help='Read songs from pipe line')
+    parser.add_argument('-d', '--dir', action='store',
+                       help='Directory of mp3')
 
     parser.add_argument('-C', '--clear-others', action='store_true',
                         help='Clear other tags')
@@ -491,20 +480,22 @@ def main():
     if args.pipeline:
         user_input = sys.stdin.read()
         songs = user_input.split('\n')
+    elif args.dir:
+        songs = glob.glob(os.path.join(args.dir,'*.mp3'))
     else:
         print('Paste song file names here:\n')
         songs = []
         while True:
-            i = raw_input()
+            i = input()
             if i:
                 songs.append(i)
             else:
-                c = raw_input('Stop adding songs and start tagging? (enter or y to confirm, N to continue adding.) ')
+                c = input('Stop adding songs and start tagging? (enter or y to confirm, N to continue adding.) ')
                 if c == '' or c == 'y':
                     print()
                     break
 
-    songs = filter(None, songs)
+    songs = list(filter(None, songs))
     logger.debug('input songs:%s', songs)
 
     tag_songs(songs, album_id, clear_others=args.clear_others)
