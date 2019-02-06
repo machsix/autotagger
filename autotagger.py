@@ -2,7 +2,7 @@
 # coding: utf-8
 
 from __future__ import print_function
-
+from hanziconv import HanziConv
 import re
 import os, glob
 import sys
@@ -76,15 +76,15 @@ ITUNES_API_KEY_MAP = {
 }
 
 
-AVAILABLE_LANGUAGES = ['en_us', 'ja_jp']
+AVAILABLE_LANGUAGES = ['en_us', 'ja_jp','zh_cn']
 DEFAULT_LANGUAGE = 'en_us'
 DEFAULT_COUNTRY = 'US'
 
 GLOBAL_CONTEXT = {
     'language': DEFAULT_LANGUAGE,
     'country': DEFAULT_COUNTRY,
+    'chinese': False
 }
-
 
 class Song(object):
     # Based on exports from iTunes: general key -> mutagen id3 key
@@ -219,8 +219,13 @@ def fetch_album_songs(album_id, only_songs=True, context=GLOBAL_CONTEXT):
         return results
 
 
-def format_song_data(origin):
+def format_song_data(origin, context=GLOBAL_CONTEXT):
     d = {k: origin.get(v) for k, v in ITUNES_API_KEY_MAP.items()}
+    if context:
+        if context['chinese']:
+            for (key, val) in d.items():
+                if isinstance(val, str):
+                    d[key] = HanziConv.toSimplified(val)
 
     d['track_number'] = '{}/{}'.format(d['track_number'], origin['trackCount'])
 
@@ -252,6 +257,7 @@ def tag_songs(songs, album_id, clear_others=False, need_confirm=True):
     for _song_data in songs_data:
         song_data = format_song_data(_song_data)
         _id = generate_id(song_data['track_number'], song_data['disc_number'])
+        logger.info(song_data)
         songs_data_col[_id] = song_data
 
     z = list(songs_data_col.values())
@@ -465,6 +471,11 @@ def main():
     if not album_id:
         raise ValueError('Could not get album id from arguments')
 
+    if args.country.upper() == 'HK' or args.country.upper() == 'CN' or args.language.lower() == 'zh_cn':
+        args.country = 'HK'
+        GLOBAL_CONTEXT['chinese'] = True
+        args.language = 'zh_cn'
+
     if args.language:
         if args.language not in AVAILABLE_LANGUAGES:
             raise ValueError('language could only be one of %s' % AVAILABLE_LANGUAGES)
@@ -481,7 +492,11 @@ def main():
         user_input = sys.stdin.read()
         songs = user_input.split('\n')
     elif args.dir:
+        if args.dir == 'local':
+            args.dir = os.getcwd()
+        print(args.dir)
         songs = glob.glob(os.path.join(args.dir,'*.mp3'))
+        print(songs)
     else:
         print('Paste song file names here:\n')
         songs = []
